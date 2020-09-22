@@ -1,5 +1,5 @@
 import { IVpc, SubnetType, Vpc } from "@aws-cdk/aws-ec2";
-import { Construct, Stack, StackProps } from "@aws-cdk/core";
+import { Construct, Stack, StackProps, Tags } from "@aws-cdk/core";
 
 export class VpcStack extends Stack {
   readonly vpc: IVpc;
@@ -25,5 +25,7 @@ export class VpcStack extends Stack {
       ],
       natGateways: 1,
     });
+
+    Tags.of(this.vpc).add("name", "ProjectXYZ");
   }
 }

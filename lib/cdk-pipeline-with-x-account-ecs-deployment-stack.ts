@@ -12,6 +12,7 @@ import {
 import * as ecr from "@aws-cdk/aws-ecr";
 import { CdkPipeline, SimpleSynthAction } from "@aws-cdk/pipelines";
 import { TargetAccountInfraStage } from "./cross-account-infra-stage";
+import { ImportedClusterResourcesStack } from "./imported-target-account-resources";
 
 export class CdkPipelineWithCrossAccountEcsDeploymentStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -20,18 +21,19 @@ export class CdkPipelineWithCrossAccountEcsDeploymentStack extends Stack {
     const cloudAssemblyArtifact = new Artifact();
     const infraSourceArtifact = new Artifact();
 
+    // replace the value
+    const targetAccountId = "12345";
+
     const ecrBackendSourceAction = this.createEcrBackendSourceAction(
       ecrBackendOutputArtifact
     );
     const infraSourceAction = this.createCodeCommitInfraSourceAction(
       infraSourceArtifact
     );
-
     const sourceActionPipeline = this.createSourceActionPipeline(
       ecrBackendSourceAction,
       infraSourceAction
     );
-
     const cdkPipeline = this.createBasicCdkPipeline(
       cloudAssemblyArtifact,
       infraSourceArtifact,
@@ -43,21 +45,29 @@ export class CdkPipelineWithCrossAccountEcsDeploymentStack extends Stack {
       "TargetAccountInfraStage",
       {
         env: {
-          account: "targetAccountId",
+          account: targetAccountId,
           region: "eu-west-1",
         },
       }
     );
     cdkPipeline.addApplicationStage(targetAccountStage);
 
-    // SO, this is what I'd like to do on a conceptual level...
+    // the stack fails here during `cdk synth`, so no `cdk.context.json` is being created.
+    // error: Need to perform AWS calls for account TARGET_ACCOUNT, but the current credentials are for PIPELINE_ACCOUNT.
+    const importedFGSResourcesStack = new ImportedClusterResourcesStack(
+      this,
+      `importedResources`,
+      {
+        projectName: "ProjectXYZ",
+        stage: "test",
+        env: { account: targetAccountId, region: "eu-west-1" },
+      }
+    );
+
     const ecsUpdateStage = cdkPipeline.addStage("DeployBackendToCluster");
-    // next line is failing with: You cannot add a dependency from 'CdkPipelineWithCrossAccountEcsDeploymentStack' (in the App) to 'CdkPipelineWithCrossAccountEcsDeploymentStack/TargetAccountInfraStage/FargateServiceStack' (in Stage 'CdkPipelineWithCrossAccountEcsDeploymentStack/TargetAccountInfraStage'): dependency cannot cross stage boundaries
-    const targetAccountBackendService = targetAccountStage.backendService;
     ecsUpdateStage.addActions(
       new EcsDeployAction({
-        // see TargetAccountInfraStage
-        service: targetAccountBackendService,
+        service: importedFGSResourcesStack.fargateService,
         actionName: `DeployActionBackend`,
         input: ecrBackendOutputArtifact,
       })
